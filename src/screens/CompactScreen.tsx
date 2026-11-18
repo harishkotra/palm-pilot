@@ -1,202 +1,154 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Animated, Easing, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import * as Haptics from 'expo-haptics';
-import { C, MONO, fmt } from '../theme';
+import { C, MONO } from '../theme';
 import { useSfx } from '../sfx';
 import { useWaveHandler } from '../waveBus';
-import { useLlm } from '../llm';
-import { compactFact } from '../llmTasks';
+import { compactFact, seedContext } from '../llmTasks';
+import { LLM } from '../config';
+import { ErrLine, Meta, Panel, Tag } from '../ui';
 
-const LIMIT = 200_000;
-const PER_COMPACT = 27_000;
-
-type Mem = { id: number; text: string; summary: string; state: 'intact' | 'compressed' | 'pinned' };
-
-const SEED: Omit<Mem, 'id'>[] = [
-  { text: 'we agreed to use Postgres, not Mongo', summary: 'db: postgres (probably)', state: 'intact' },
-  { text: 'the client wants it by Friday', summary: 'deadline: friday-ish', state: 'intact' },
-  { text: 'legacy auth uses MD5 — do not touch it', summary: 'auth: legacy, careful', state: 'intact' },
-  { text: 'bug only reproduces on Safari iOS 16', summary: 'safari thing', state: 'intact' },
-  { text: 'DO NOT refactor the billing module', summary: "don't touch billing?", state: 'intact' },
-  { text: 'Priya owns the deploy keys', summary: 'deploy: someone', state: 'intact' },
-  { text: 'pricing tier names were decided on a call', summary: 'pricing: as discussed', state: 'intact' },
-  { text: 'old API deprecated, 3 customers still on it', summary: 'api: deprecated something', state: 'intact' },
-  { text: 'the migration must run before the deploy', summary: 'migration: order matters?', state: 'intact' },
-];
-
-let id = 1;
-const seed = () => SEED.map((m) => ({ ...m, id: id++ }));
+type Fact = { id: number; text: string; pinned?: boolean; to?: string };
 
 export default function CompactScreen() {
   const play = useSfx();
-  const llm = useLlm();
-  const [tokens, setTokens] = useState(187_431);
-  const [mems, setMems] = useState<Mem[]>(seed);
-  const [compactions, setCompactions] = useState(0);
-  const [line, setLine] = useState('context loaded · 9 facts in memory');
+  const [facts, setFacts] = useState<Fact[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [ms, setMs] = useState<number | null>(null);
+  const [tokens, setTokens] = useState(0);
+  const [passes, setPasses] = useState(0);
 
-  const bar = useRef(new Animated.Value(187_431 / LIMIT)).current;
+  const idRef = useRef(1);
+  const factsRef = useRef<Fact[]>([]);
+  const inFlight = useRef(false);
+  factsRef.current = facts;
 
-  useEffect(() => {
-    Animated.timing(bar, {
-      toValue: tokens / LIMIT,
-      duration: 520,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: false,
-    }).start();
-  }, [tokens, bar]);
-
-  const intact = mems.filter((m) => m.state === 'intact');
-  const lost = mems.filter((m) => m.state === 'compressed').length;
-  const integrity = Math.round(((mems.length - lost) / mems.length) * 100);
-
-  const scriptedPick = useCallback(() => {
-    setMems((prev) => {
-      const next = [...prev];
-      const target = next.find((m) => m.state === 'intact');
-      if (target) {
-        target.state = 'compressed';
-        setLine(`"${target.text}" → "${target.summary}"`);
-      } else {
-        setLine('no facts left. only vibes.');
-      }
-      return next;
-    });
+  const track = useCallback((r: { ms: number; usage: any }) => {
+    setMs(r.ms);
+    setTokens((t) => t + (r.usage?.total ?? 0));
   }, []);
 
-  const compact = useCallback(() => {
-    if (tokens <= 0) {
-      setLine('nothing left to compact. nothing left.');
-      return;
+  const seed = useCallback(async () => {
+    setBusy(true);
+    setErr(null);
+    try {
+      const { facts: list, reply } = await seedContext();
+      setFacts(list.map((text) => ({ id: idRef.current++, text })));
+      setPasses(0);
+      track(reply);
+    } catch (e: any) {
+      setErr(e?.message ?? 'request failed');
+      setFacts([]);
+    } finally {
+      setBusy(false);
     }
-    setTokens((t) => Math.max(0, t - PER_COMPACT));
-    setCompactions((n) => n + 1);
+  }, [track]);
+
+  useEffect(() => {
+    void seed();
+  }, [seed]);
+
+  const compress = useCallback(async () => {
+    const live = factsRef.current.filter((f) => !f.to && !f.pinned);
+    if (inFlight.current || live.length === 0) return;
+    inFlight.current = true;
+    setErr(null);
+    setBusy(true);
     play('compact');
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
-
-    if (!llm.live) {
-      scriptedPick();
-      return;
+    try {
+      const { from, to, reply } = await compactFact(live.map((f) => f.text));
+      setFacts((fs) => fs.map((f) => (f.text === from ? { ...f, to } : f)));
+      setPasses((n) => n + 1);
+      track(reply);
+    } catch (e: any) {
+      setErr(e?.message ?? 'request failed');
+    } finally {
+      setBusy(false);
+      inFlight.current = false;
     }
+  }, [play, track]);
 
-    const facts = mems.filter((m) => m.state === 'intact').map((m) => m.text);
-    if (!facts.length) {
-      setLine('no facts left. only vibes.');
-      return;
-    }
-    setLine('compacting…');
-    compactFact(llm.config, facts)
-      .then((pick) => {
-        if (!pick) return scriptedPick();
-        setMems((prev) => prev.map((m) => (m.text === pick.from ? { ...m, state: 'compressed', summary: pick.to } : m)));
-        setLine(`"${pick.from}" → "${pick.to}"`);
-      })
-      .catch(() => scriptedPick());
-  }, [play, tokens, llm.config, llm.live, mems, scriptedPick]);
+  const pin = useCallback(() => {
+    const live = factsRef.current.filter((f) => !f.to && !f.pinned);
+    if (!live.length) return;
+    const pick = live[Math.floor(Math.random() * live.length)];
+    setFacts((fs) => fs.map((f) => (f.id === pick.id ? { ...f, pinned: true } : f)));
+    play('deny');
+  }, [play]);
 
   useWaveHandler({
-    onWave: compact,
-    onHold: () => {
-      setMems((prev) => {
-        const next = [...prev];
-        const target = next.find((m) => m.state === 'intact');
-        if (target) {
-          target.state = 'pinned';
-          setLine(`pinned: "${target.text}" — survives compaction`);
-          play('approve');
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-        } else {
-          setLine('nothing intact left to pin.');
-        }
-        return next;
-      });
-    },
-    onDouble: () => {
-      setTokens(0);
-      setMems((prev) => prev.map((m) => (m.state === 'pinned' ? m : { ...m, state: 'compressed' })));
-      setLine('HARD RESET. you have forgotten why you started.');
-      play('deny');
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
-    },
+    onWave: () => void compress(),
+    onHold: pin,
+    onDouble: () => void seed(),
   });
 
-  const barWidth = bar.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] });
-  const barColor = tokens / LIMIT > 0.5 ? C.green : tokens / LIMIT > 0.2 ? C.amber : C.red;
+  const total = facts.length;
+  const intact = facts.filter((f) => !f.to).length;
+  const pct = total ? intact / total : 0;
 
   return (
-    <View style={s.root}>
-      <View style={s.topRow}>
-        <Text style={s.label}>CONTEXT WINDOW</Text>
-        <Text style={s.mono}>
-          {fmt(tokens)} <Text style={s.dim}>/ {fmt(LIMIT)}</Text>
-        </Text>
+    <View style={s.wrap}>
+      <View style={s.head}>
+        <Tag color={C.dim}>{`CONTEXT · ${LLM.model}`}</Tag>
+        <Meta ms={ms} tokens={tokens} />
       </View>
 
-      <View style={s.barTrack}>
-        <Animated.View style={[s.barFill, { width: barWidth, backgroundColor: barColor }]} />
-      </View>
+      <Panel tone={err ? 'bad' : undefined}>
+        <View style={s.barRow}>
+          <Tag color={busy ? C.amber : C.faint}>
+            {busy ? 'COMPACTING…' : `${intact}/${total} INTACT`}
+          </Tag>
+          <Text style={s.passes}>{passes} passes</Text>
+        </View>
+        <View style={s.bar}>
+          <View style={[s.barFill, { width: `${Math.max(2, pct * 100)}%`, backgroundColor: pct > 0.5 ? C.green : pct > 0.25 ? C.amber : C.red }]} />
+        </View>
+        <Text style={s.hint}>wave = compact · hold = pin · double = re-seed</Text>
+        <ErrLine msg={err} onRetry={() => void seed()} />
+      </Panel>
 
-      <View style={s.statRow}>
-        <Text style={s.stat}>
-          compactions <Text style={s.cyan}>{compactions}</Text>
-        </Text>
-        <Text style={s.stat}>
-          facts lost <Text style={s.red}>{lost}</Text>
-        </Text>
-        <Text style={s.stat}>
-          integrity <Text style={integrity > 60 ? s.green : s.amber}>{integrity}%</Text>
-        </Text>
-      </View>
-
-      <ScrollView style={s.list} contentContainerStyle={{ paddingBottom: 12 }}>
-        {mems.map((m) => (
-          <View key={m.id} style={s.mem}>
-            <Text style={s.bullet}>{m.state === 'intact' ? '●' : m.state === 'pinned' ? '◈' : '○'}</Text>
+      <View style={s.list}>
+        {facts.map((f) => (
+          <View key={f.id} style={s.fact}>
+            <Text style={[s.dash, f.to ? { color: C.red } : f.pinned ? { color: C.cyan } : { color: C.faint }]}>
+              {f.to ? '✕' : f.pinned ? '◈' : '·'}
+            </Text>
             <View style={{ flex: 1 }}>
-              <Text
-                style={[
-                  s.memText,
-                  m.state === 'compressed' && s.memDead,
-                  m.state === 'pinned' && { color: C.cyan },
-                ]}
-              >
-                {m.text}
-              </Text>
-              {m.state === 'compressed' && <Text style={s.summary}>↳ {m.summary}</Text>}
+              {f.to ? (
+                <>
+                  <Text style={s.old}>{f.text}</Text>
+                  <Text style={s.now}>{f.to}</Text>
+                </>
+              ) : (
+                <Text style={[s.text, f.pinned && { color: C.cyan }]}>{f.text}</Text>
+              )}
             </View>
           </View>
         ))}
-      </ScrollView>
-
-      <View style={s.footer}>
-        <Text style={s.hint}>wave to compact · hold to pin a fact · double-wave to reset</Text>
-        <Text style={s.line}>{line}</Text>
       </View>
+
+      <Text style={s.foot}>
+        {total - intact} facts destroyed this session
+      </Text>
     </View>
   );
 }
 
 const s = StyleSheet.create({
-  root: { flex: 1, paddingHorizontal: 16 },
-  topRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' },
-  label: { fontFamily: MONO, fontSize: 10, letterSpacing: 1.8, color: C.dim },
-  mono: { fontFamily: MONO, fontSize: 13, color: C.text },
-  dim: { color: C.faint },
-  barTrack: { height: 10, backgroundColor: C.panel2, borderRadius: 5, marginTop: 8, overflow: 'hidden', borderWidth: 1, borderColor: C.border },
-  barFill: { height: '100%', borderRadius: 5 },
-  statRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 10 },
-  stat: { fontFamily: MONO, fontSize: 11, color: C.dim },
-  cyan: { color: C.cyan },
-  green: { color: C.green },
-  amber: { color: C.amber },
-  red: { color: C.red },
-  list: { flex: 1, marginTop: 16 },
-  mem: { flexDirection: 'row', gap: 8, marginBottom: 11 },
-  bullet: { fontFamily: MONO, fontSize: 12, color: C.faint, marginTop: 1 },
-  memText: { fontFamily: MONO, fontSize: 13, color: C.text, lineHeight: 19 },
-  memDead: { color: C.faint, textDecorationLine: 'line-through' },
-  summary: { fontFamily: MONO, fontSize: 11.5, color: C.amber, marginTop: 2 },
-  footer: { borderTopWidth: 1, borderTopColor: C.border, paddingTop: 10, paddingBottom: 6 },
-  hint: { fontFamily: MONO, fontSize: 10, color: C.faint },
-  line: { fontFamily: MONO, fontSize: 12, color: C.dim, marginTop: 6, minHeight: 32 },
+  wrap: { flex: 1, gap: 10 },
+  head: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  barRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  passes: { fontFamily: MONO, fontSize: 9.5, color: C.faint },
+  bar: { height: 4, borderRadius: 2, backgroundColor: '#111a22', marginTop: 10, overflow: 'hidden' },
+  barFill: { height: 4, borderRadius: 2 },
+  hint: { fontFamily: MONO, fontSize: 9.5, color: C.faint, marginTop: 10 },
+  list: { flex: 1, gap: 1 },
+  fact: { flexDirection: 'row', gap: 8, paddingVertical: 7, borderTopWidth: 1, borderTopColor: '#0f1720' },
+  dash: { fontFamily: MONO, fontSize: 11, width: 12 },
+  text: { fontFamily: MONO, fontSize: 11, color: C.text, lineHeight: 16 },
+  old: { fontFamily: MONO, fontSize: 11, color: C.faint, lineHeight: 16, textDecorationLine: 'line-through' },
+  now: { fontFamily: MONO, fontSize: 11, color: C.amber, lineHeight: 16, marginTop: 1 },
+  foot: { fontFamily: MONO, fontSize: 10, color: C.faint, letterSpacing: 0.6 },
 });

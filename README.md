@@ -3,137 +3,118 @@
 A touchless demo for people who spend their day clicking **Allow** on an AI agent.
 
 Your hand over the top edge of the phone is the input. No touch, no screen press —
-the ambient‑light sensor sees the room go dark for as long as your palm is there,
-and the duration of that darkness is the gesture.
+the ambient-light sensor sees the room go dark for as long as your palm is there,
+and how long it stays dark is the gesture. Every line the app shows is generated
+by `particle-1` while you watch; there is no scripted content and no fallback copy.
 
 ## The three modes
 
 | Tab | The joke | Gestures |
 |---|---|---|
-| **LGTM** | You approve everything your agent proposes without reading it | wave = approve · hold = deny · double‑wave = YOLO mode |
-| **/COMPACT** | Compaction quietly destroys the context you spent an hour building | wave = compact a fact · hold = pin a fact so it survives · double‑wave = hard reset |
-| **PANIC** | The agent is stuck, and it is never going to know why | wave = escalate the diagnosis · hold = reset the session |
+| **LGTM** | You approve everything your agent proposes without reading it | wave = approve · hold = deny · double = auto-approve loop |
+| **/COMPACT** | Compaction quietly destroys the context you spent an hour building | wave = compact a fact · hold = pin one · double = re-seed |
+| **PANIC** | The agent is stuck and will never know why | wave = next line · hold = abandon task · double = two turns |
 
-Every approval is counted. The footer reads `approved N · read 0`.
+Each of those maps to one model call, shown with its real latency and token count.
+LGTM's footer reads `approved N · denied M · read 0`.
 
-## Run it
+## Setup
 
 ```sh
+cp .env.example .env     # then fill in your key
 npm install
-npx expo start
+npx expo start -c        # -c is required after changing .env
 ```
 
-Scan the QR with **Expo Go** on the S24 Ultra (same Wi‑Fi). `expo-sensors`,
-`expo-audio` and `expo-haptics` are all in Expo Go, so there is no build step.
+Scan the QR with **Expo Go** on the S24 Ultra on the same Wi-Fi. `expo-sensors`,
+`expo-audio` and `expo-haptics` all ship inside Expo Go, so there is no build step.
 
-## Where the AI is (and where it isn't)
+## Configure everything in `.env`
 
-Out of the box there is **no inference**: `enabled: false`, so every tool call,
-summary and diagnosis line is scripted. That is deliberate — it demos on a plane
-and it never fails on stage. The sensor is real, the gesture pipeline is real,
-the wording is canned.
+Every value is read once at build time. Change one, restart with `npx expo start -c`,
+reload the app. Tap the model badge in the header to see what the app actually
+loaded and to run a live round trip against it.
 
-Tap the **SCRIPTED / LIVE** badge in the header to point the app at any
-OpenAI‑compatible endpoint. When it is live, four things actually hit the model:
+| Variable | Meaning |
+|---|---|
+| `EXPO_PUBLIC_LLM_BASE_URL` | Any OpenAI-compatible base. Particle global `https://api.particle.ai/v1`, US-only `https://us.api.particle.ai/v1`, or `http://192.168.x.x:11434/v1` for Ollama |
+| `EXPO_PUBLIC_LLM_API_KEY` | Bearer key. Placeholder only in `.env.example`; `.env` is gitignored and never bundled |
+| `EXPO_PUBLIC_LLM_MODEL` | `particle-1`, `deepseek-ai/deepseek-v41-flash-1017`, `z-ai/glm-5.3-flash` — or any model the endpoint lists |
+| `EXPO_PUBLIC_LLM_REASONING_EFFORT` | `none` suppresses thinking tokens so the whole budget goes to the answer. Use `low`/`medium` for better jokes, or leave blank for models that reject the field |
+| `EXPO_PUBLIC_LLM_MAX_TOKENS` | Cap on the short replies (proposal, reaction, diagnosis). Structural calls get their own budget internally |
+| `EXPO_PUBLIC_DEBUG_GESTURES` | `1` shows a SIM WAVE / HOLD / ×2 row for phones with no light sensor. Default `0`: gestures only |
 
-| Mode | Prompt | What the model returns |
+With no key the app refuses to run the modes and shows the setup screen instead —
+it will not pretend to be intelligent.
+
+## The five prompts
+
+| Where | Function | What the model returns |
 |---|---|---|
-| LGTM | "you are a coding agent, what is the next tool call" (JSON) | `{tool, detail, risk}` — the card on screen |
-| LGTM | after a wave, "one line on what happens next" | one cynical consequence line in the log |
-| /COMPACT | "pick one fact to destroy, restate it worse" (JSON) | `{from, to}` — the fact that gets struck through |
-| PANIC | "you are stuck, one line of false confidence" | the body of the current diagnosis stage |
+| LGTM card | `proposeNext(history)` | `{"tool":"Read\|Write\|Edit\|Bash","detail":"<=52 chars","risk":"low\|medium\|high\|extreme"}` |
+| LGTM after wave | `reaction(p,'approve')` | one past-tense sentence about what just happened |
+| LGTM after hold | `reaction(p,'deny')` | one line of passive-aggressive compliance |
+| /COMPACT on mount | `seedContext()` | six load-bearing facts the agent is holding |
+| /COMPACT on wave | `compactFact(facts)` | `{"from":"<fact>","to":"<<=44 chars, subtly wrong>"}` |
+| PANIC on wave | `diagnose(prior, seconds)` | the next line of false confidence, given elapsed time |
 
-Anything the model returns is validated: unknown tool names, invented facts
-(the `/COMPACT` pick must be a fact that was actually listed), prose instead of
-JSON, and anything over ~140 chars are all dropped and the scripted line stays.
-A dead endpoint therefore looks like a slow demo, never a broken one.
+Output is validated: wrong tool name, missing risk, a fact that was not in the list,
+non-JSON prose — any of these throws, and the screen shows the error with a tap-to-retry
+instead of inventing a line. Nothing is cached, so the same gesture twice gives you
+different text.
 
-**Config fields:** base URL, model, API key. Presets fill in OpenAI, a local
-Ollama on the Mac (`http://<mac-lan-ip>:11434/v1`), LM Studio, OpenRouter.
-Bare `host:port` is accepted and gets `http://` + `/v1`; a full URL is left
-alone. **TEST** sends one cheap prompt and reports the round‑trip in ms.
-
-The key lives in `AsyncStorage` on the phone only — not in the repo, not in the
-bundle, not in the logs. It is readable by anyone with the device, so treat it
-as a demo phone credential, not a production secret.
-
-### Pointing it at a local model
+## Verify it without a phone
 
 ```sh
-ollama serve                       # or LM Studio on :1234
-ollama pull qwen3:4b
-ipconfig getifaddr en0             # the Mac's LAN IP
+npm test          # gesture detector + URL/JSON parsing, offline
+npm run test:live # hits the endpoint in .env, checks all five prompts
+npm run demo      # real lux samples → real detector → real model, printed
 ```
 
-Put `http://<that-ip>:11434/v1` in the sheet, model `qwen3:4b`, leave the key
-empty. On a phone, `localhost` means the phone, not the Mac.
+`npm run demo` feeds synthetic illuminance readings into the same `WaveDetector`
+the phone uses, asserts the detector classified `wave` / `hold` / `double`, then
+prints the model's answer for each. Sample output (particle-1, ~0.7–1.1 s per call):
+
+```
+— gesture 1: quick cover/release over the sensor
+  detector: wave
+  model:    Bash · "List repo root files" · risk low · 882 ms / 187 tok
+  approved: "The approved command ran and listed the repo root files." · 820 ms
+  denied:   "Fine. I'll just guess at the repo structure instead." · 1067 ms
+```
 
 ## How the gesture works
 
-`expo-sensors` has no proximity API, but it does expose **LightSensor**
-(Android). Hand over the top of the phone → illuminance collapses toward zero.
+`LightSensor` fires every 80 ms. `src/waveDetector.ts` learns the ambient baseline,
+treats a drop below `max(1.5, baseline × 0.5)` as *covered*, and classifies on release:
 
-`src/waveDetector.ts` is a pure state machine that turns that into events:
+- covered < 700 ms → **wave**
+- covered ≥ 900 ms → **hold**
+- two covers inside 650 ms → **double**
 
-- baseline is learned from the first 6 samples and then drifts slowly, so a lamp
-  turning on does not desensitise it
-- **covered** = lux < 50% of baseline · **released** = lux > 75% of baseline
-- covered < 700 ms and released → **wave**
-- covered ≥ 900 ms → **hold** (fires once, while your hand is still there)
-- two waves inside 650 ms → **double** (the single wave is held back 240 ms so a
-  double never also fires an approve)
-- 700–900 ms of cover is deliberately ignored: a lazy hand is not a gesture
-- below 12 lux ambient the detector reports "not ready" rather than guessing
-
-Everything is tunable through `DetectorConfig` / `DEFAULTS` in that file.
-
-## Testing without a phone
-
-```sh
-npm test         # 14 assertions on the gesture state machine
-npm run test:llm # 18 assertions against tools/mock_llm.py (spawns it, kills it)
-npm run typecheck
-```
-
-The three `SIM WAVE / SIM HOLD / SIM ×2` buttons in the footer fire the same
-events by hand, so the app is demoable even if a sensor misbehaves on stage.
-
-## 30‑second demo script
-
-1. Phone flat on the table, LGTM tab open. "This is my agent. It has been asking
-   permission all morning."
-2. Wave a hand over it. It approves `Write: 47 files`. "That's the whole
-   workflow — I didn't read it, I waved at it."
-3. Hold your hand over it. It denies, and the agent apologises for 400 tokens.
-4. Double‑wave. YOLO mode: approvals start stamping themselves every 0.6s.
-   "This is what shipping feels like."
-5. Switch to /COMPACT, wave twice. "And this is what compaction does to
-   everything I just told it." Facts get struck through and replaced by worse
-   summaries.
-6. End on `approved 143 · read 0`.
+The band between 700 and 900 ms is deliberately silent. Tuning constants sit in
+`DEFAULTS` in the same file; the window is 60–70 ms, so a wave is a real hand
+movement, not a screen tap. On iOS `expo-sensors` has no `LightSensor`, so the
+readout stays at 0 and you need `EXPO_PUBLIC_DEBUG_GESTURES=1` to drive it by touch.
 
 ## Files
 
 ```
-App.tsx                     shell, tabs, sensor readout, sim buttons, LIVE badge
-src/llm.ts                  config store (AsyncStorage) + probe
-src/llmClient.ts            pure fetch client, URL normaliser, JSON extractor
-src/llmTasks.ts             the four prompts and their validators
-src/screens/SetupSheet.tsx  base URL / model / key sheet with presets + TEST
-src/waveDetector.ts         pure gesture state machine (tested)
-src/useWave.ts              sensor subscription + UI throttling
-src/waveBus.ts              routes events to the mounted screen only
-src/sfx.ts                  six generated WAVs via expo-audio
-src/screens/LgtmScreen.tsx
-src/screens/CompactScreen.tsx
-src/screens/PanicScreen.tsx
-assets/sounds/*.wav         generated with tools/gen_sfx.py (stdlib only)
+App.tsx                     tabs, header, gesture wiring, setup gate
+src/config.ts               .env → typed config, the only place env is read
+src/llmClient.ts            OpenAI-compatible fetch, URL normalizer, JSON extractor
+src/llmTasks.ts             the five prompts, schema validation, no fallbacks
+src/waveDetector.ts         pure gesture state machine (tested headlessly)
+src/useWave.ts              LightSensor → detector → React, throttled to ~220 ms
+src/waveBus.ts              only the mounted screen receives gestures
+src/screens/*.tsx           LGTM · /COMPACT · PANIC · setup sheet
+tools/live-demo.ts          gesture → model transcript, no phone
+test/*.test.ts              detector, parser, live endpoint
 ```
 
-## Limits
+## Key handling
 
-- Light‑based waving is a threshold, not a gesture recogniser: it knows
-  *covered / not covered / how long*, not direction or speed.
-- Bright, even overhead light works best. Direct sun on the sensor saturates the
-  baseline and makes the drop smaller.
-- iOS has no `LightSensor` in `expo-sensors`; this build is Android‑first.
+`.env` is gitignored and excluded from the packaged zip. `EXPO_PUBLIC_*` values are
+inlined into the JS bundle at build time, so this pattern is right for a demo running
+in Expo Go on your own phone and wrong for anything you ship to a store — for that,
+proxy the call through a server and keep the key off the device.

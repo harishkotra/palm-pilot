@@ -3,7 +3,6 @@
   "version": "1.0.0",
   "main": "index.ts",
   "dependencies": {
-    "@react-native-async-storage/async-storage": "2.2.0",
     "expo": "~58.0.25",
     "expo-audio": "~58.0.12",
     "expo-haptics": "~58.0.8",
@@ -26,9 +25,10 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "test": "tsx test/waveDetector.test.ts",
-    "test:llm": "python3 tools/mock_llm.py & MOCK=$!; sleep 1; tsx test/llm.test.ts; CODE=$?; kill $MOCK 2>/dev/null; exit $CODE",
-    "typecheck": "tsc --noEmit"
+    "test": "tsx test/waveDetector.test.ts && tsx test/parse.test.ts",
+    "typecheck": "tsc --noEmit",
+    "test:live": "node --env-file=.env --import tsx test/live.test.ts",
+    "demo": "node --env-file=.env --import tsx tools/live-demo.ts"
   },
   "private": true
 }
