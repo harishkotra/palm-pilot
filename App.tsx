@@ -10,9 +10,10 @@ import { DEBUG_GESTURES, LLM, hasKey } from './src/config';
 import LgtmScreen from './src/screens/LgtmScreen';
 import CompactScreen from './src/screens/CompactScreen';
 import PanicScreen from './src/screens/PanicScreen';
+import RepoScreen from './src/screens/RepoScreen';
 import SetupSheet from './src/screens/SetupSheet';
 
-const TABS = ['LGTM', '/COMPACT', 'PANIC'] as const;
+const TABS = ['LGTM', '/COMPACT', 'PANIC', '/REPO'] as const;
 
 function Gate({ onOpen }: { onOpen: () => void }) {
   return (
@@ -42,8 +43,10 @@ export default function App() {
   }, [play]);
   const onHold = useCallback(() => dispatchWave('hold'), []);
   const onDouble = useCallback(() => dispatchWave('double'), []);
+  const onTriple = useCallback(() => dispatchWave('triple'), []);
+  const onHoldLong = useCallback(() => dispatchWave('holdLong'), []);
 
-  const wave = useWave({ onWave, onHold, onDouble });
+  const wave = useWave({ onWave, onDouble, onTriple, onHold, onHoldLong });
 
   const sensorText =
     wave.available === false
@@ -83,16 +86,20 @@ export default function App() {
             <LgtmScreen />
           ) : tab === 1 ? (
             <CompactScreen />
-          ) : (
+          ) : tab === 2 ? (
             <PanicScreen />
+          ) : (
+            <RepoScreen />
           )}
         </View>
 
         {DEBUG_GESTURES && (
           <View style={s.sim}>
-            {(['wave', 'hold', 'double'] as const).map((e) => (
+            {(['wave', 'double', 'triple', 'hold', 'holdLong'] as const).map((e) => (
               <Pressable key={e} onPress={() => wave.simulate(e)} style={s.simBtn}>
-                <Text style={s.simText}>{e === 'wave' ? 'SIM WAVE' : e === 'hold' ? 'SIM HOLD' : 'SIM ×2'}</Text>
+                <Text style={s.simText}>
+                  {e === 'wave' ? '×1' : e === 'double' ? '×2' : e === 'triple' ? '×3' : e === 'hold' ? 'HOLD' : 'HOLD+'}
+                </Text>
               </Pressable>
             ))}
           </View>
@@ -115,9 +122,9 @@ const s = StyleSheet.create({
   tabs: { flexDirection: 'row', gap: 6, marginTop: 14 },
   tab: { flex: 1, paddingVertical: 9, borderRadius: 7, borderWidth: 1, borderColor: '#131c25', alignItems: 'center' },
   tabOn: { borderColor: C.border, backgroundColor: '#0b1219' },
-  tabText: { fontFamily: MONO, fontSize: 10, color: C.faint, letterSpacing: 1.5 },
+  tabText: { fontFamily: MONO, fontSize: 9, color: C.faint, letterSpacing: 1 },
   body: { flex: 1, marginTop: 12 },
-  sim: { flexDirection: 'row', gap: 8, paddingVertical: 10 },
+  sim: { flexDirection: 'row', gap: 6, paddingVertical: 10 },
   simBtn: { flex: 1, borderWidth: 1, borderColor: '#131c25', borderRadius: 7, paddingVertical: 8, alignItems: 'center' },
   simText: { fontFamily: MONO, fontSize: 9, color: C.dim, letterSpacing: 1 },
 });

@@ -4,6 +4,9 @@
 import { WaveDetector, DEFAULTS, type WaveEvent } from '../src/waveDetector';
 import { LLM, hasKey } from '../src/config';
 import { compactFact, diagnose, proposeNext, reaction, seedContext, target } from '../src/llmTasks';
+import { fetchRepoState } from '../src/github';
+import { plan as repoPlan, triage } from '../src/repoTasks';
+import { hasRepo, GITHUB } from '../src/config';
 
 const AMBIENT = 320;
 const cover = () => 2;
@@ -79,7 +82,7 @@ const rep = (v: number, n: number) => Array.from({ length: n }, () => v);
   // ── PANIC ───────────────────────────────────────────────────────────────
   const detC = new WaveDetector(DEFAULTS);
   let clockC = warm(detC);
-  console.log('— gesture 3: two quick covers inside 650 ms');
+  console.log('— gesture 3: two quick covers inside the tap window');
   const g3 = run(
     detC,
     [...rep(cover(), 2), ...rep(AMBIENT, 2), ...rep(cover(), 2), ...rep(AMBIENT, 8)],
@@ -93,6 +96,45 @@ const rep = (v: number, n: number) => Array.from({ length: n }, () => v);
   console.log(`  t+15s:    "${d2.line}"`);
   const d3 = await diagnose([d1.line, d2.line], 41);
   console.log(`  t+41s:    "${d3.line}"`);
-  console.log(`\n  ${d3.reply.ms} ms for the last turn · ${d3.reply.usage?.total ?? '?'} tok`);
+  console.log(`\n  ${d3.reply.ms} ms for the last turn · ${d3.reply.usage?.total ?? '?'} tok\n`);
+
+  // ── /REPO ───────────────────────────────────────────────────────────────
+  if (hasRepo) {
+    const detD = new WaveDetector(DEFAULTS);
+    const clockD = warm(detD);
+    console.log('— gesture 4: three quick covers (triple) on the /REPO tab');
+    const g4 = run(
+      detD,
+      [
+        ...rep(cover(), 2), ...rep(AMBIENT, 2),
+        ...rep(cover(), 2), ...rep(AMBIENT, 2),
+        ...rep(cover(), 2), ...rep(AMBIENT, 8),
+      ],
+      clockD,
+    );
+    console.log(`  detector: ${g4.events.join(', ') || 'nothing'}`);
+
+    const state = await fetchRepoState();
+    console.log(
+      `  github:   ${state.repo.fullName} · ${state.repo.openIssues} open · ${state.commits.length} commits · ${state.ms} ms`,
+    );
+    const pick = await triage(state);
+    console.log(`  triage:   #${pick.pick.number} — ${pick.pick.why} · ${pick.reply.ms} ms`);
+    console.log(`  first move: ${pick.pick.action}`);
+    const steps = await repoPlan(state, pick.pick);
+    steps.plan.steps.forEach((s, i) => console.log(`    ${i + 1}. ${s}`));
+    console.log(`  plan:     ${steps.reply.ms} ms / ${steps.reply.usage?.total ?? '?'} tok\n`);
+  } else {
+    console.log('— gesture 4 skipped: no EXPO_PUBLIC_GITHUB_REPO / TOKEN in .env\n');
+  }
+
+  // ── holdLong ────────────────────────────────────────────────────────────
+  const detE = new WaveDetector(DEFAULTS);
+  const clockE = warm(detE);
+  console.log('— gesture 5: hand parked past 2.4 s (holdLong)');
+  const g5 = run(detE, [...rep(cover(), 34), ...rep(AMBIENT, 6)], clockE);
+  console.log(`  detector: ${g5.events.join(', ') || 'nothing'}`);
+  console.log(`  repo under test: ${GITHUB.repo || 'none'}`);
+
   await sleep(50);
 })();

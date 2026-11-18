@@ -1,4 +1,4 @@
-export type WaveEvent = 'wave' | 'hold' | 'double';
+export type WaveEvent = 'wave' | 'double' | 'triple' | 'hold' | 'holdLong';
 
 export type DetectorConfig = {
   /** lux must fall below this fraction of the ambient baseline to count as "covered" */
@@ -7,11 +7,13 @@ export type DetectorConfig = {
   releaseRatio: number;
   /** a hand parked this long becomes a hold (fires once) */
   holdMs: number;
-  /** anything slower than this is not a wave */
+  /** ...and this long becomes a holdLong, so one gesture can mean two things */
+  longHoldMs: number;
+  /** anything slower than this is not a tap */
   maxWaveMs: number;
-  /** two waves inside this window collapse into one "double" */
-  doubleWindowMs: number;
-  /** a lone wave is held back this long in case a second one follows */
+  /** taps must all land inside this window of the first one to chain */
+  tapWindowMs: number;
+  /** a tap is held back this long in case another one follows */
   singleDelayMs: number;
   /** below this ambient level the sensor cannot separate hand from room */
   minBaseline: number;
@@ -23,17 +25,23 @@ export const DEFAULTS: DetectorConfig = {
   coverRatio: 0.5,
   releaseRatio: 0.75,
   holdMs: 900,
+  longHoldMs: 2400,
   maxWaveMs: 700,
-  doubleWindowMs: 650,
+  tapWindowMs: 1500,
   singleDelayMs: 240,
   minBaseline: 12,
   warmupSamples: 6,
 };
 
+const TAP_NAMES = ['wave', 'double', 'triple'] as const;
+
 /**
  * Pure gesture state machine: feed it illuminance samples and timestamps,
- * get back wave / hold / double events. No React, no sensors — so it can be
- * tested on a laptop instead of on a phone in a room.
+ * get back wave / double / triple / hold / holdLong events. No React, no
+ * sensors — so it can be tested on a laptop instead of in a lit room.
+ *
+ * Taps are counted and only classified once the hand has been away for
+ * singleDelayMs, which is what allows a third tap to turn a double into a triple.
  */
 export class WaveDetector {
   private cfg: DetectorConfig;
@@ -41,10 +49,9 @@ export class WaveDetector {
   private base = 0;
   private covered = false;
   private coverStart = 0;
-  private holdFired = false;
-  private waves: number[] = [];
-  private pendingSingleAt: number | null = null;
-  private frozen = false;
+  private holdEmitted: 'hold' | 'holdLong' | null = null;
+  private taps: number[] = [];
+  private pendingAt: number | null = null;
 
   constructor(cfg: Partial<DetectorConfig> = {}) {
     this.cfg = { ...DEFAULTS, ...cfg };
@@ -67,15 +74,21 @@ export class WaveDetector {
     this.base = 0;
     this.covered = false;
     this.coverStart = 0;
-    this.holdFired = false;
-    this.waves = [];
-    this.pendingSingleAt = null;
+    this.holdEmitted = null;
+    this.taps = [];
+    this.pendingAt = null;
+  }
+
+  private clearPending() {
+    this.pendingAt = null;
+    this.taps = [];
   }
 
   push(rawLux: number, now: number): WaveEvent[] {
     const value = Math.max(0, Number.isFinite(rawLux) ? rawLux : 0);
     const out: WaveEvent[] = [];
-    const { coverRatio, releaseRatio, holdMs, maxWaveMs, doubleWindowMs, warmupSamples } = this.cfg;
+    const { coverRatio, releaseRatio, holdMs, longHoldMs, maxWaveMs, tapWindowMs, warmupSamples } =
+      this.cfg;
 
     if (this.warmup.length < warmupSamples || this.base === 0) {
       this.warmup.push(value);
@@ -87,10 +100,7 @@ export class WaveDetector {
       if (value < Math.max(1.5, this.base * coverRatio)) {
         this.covered = true;
         this.coverStart = now;
-        this.holdFired = false;
-        // A second cover arriving while the first wave is still on the shelf is
-        // the start of a possible double: freeze the pending single.
-        if (this.pendingSingleAt !== null) this.frozen = true;
+        this.holdEmitted = null;
       } else {
         // slow adaptation: lamps change, clouds pass, nobody waves
         this.base = this.base * 0.85 + value * 0.15;
@@ -101,61 +111,59 @@ export class WaveDetector {
     if (value > Math.max(1.5, this.base * releaseRatio)) {
       this.covered = false;
       const dur = now - this.coverStart;
-      const holdAlready = this.holdFired;
-      const hadPending = this.pendingSingleAt !== null;
-      const flushPending = () => {
-        if (hadPending) {
-          this.pendingSingleAt = null;
-          this.waves = [];
-          out.push('wave');
-        }
-      };
-      this.holdFired = false;
-      this.frozen = false;
+      const announced = this.holdEmitted;
+      this.holdEmitted = null;
 
-      // A hand parked long enough is a hold, whether or not a tick caught it.
-      if (holdAlready || dur >= holdMs) {
-        flushPending();
-        if (!holdAlready) out.push('hold');
+      // tick() may already have announced the hold while the hand was still there
+      if (announced) {
+        this.clearPending();
         return out;
       }
 
-      // Too slow to be a wave, too fast to be a hold: a lazy hand, ignored.
+      if (dur >= holdMs) {
+        this.clearPending();
+        out.push(dur >= longHoldMs ? 'holdLong' : 'hold');
+        return out;
+      }
+
+      // Too slow to be a tap, too fast to be a hold: a lazy hand, ignored.
       if (dur > maxWaveMs) {
-        flushPending();
+        this.clearPending();
         return out;
       }
 
-      this.waves = this.waves.filter((t) => now - t < doubleWindowMs);
-      this.waves.push(now);
-
-      if (this.waves.length >= 2) {
-        this.waves = [];
-        this.pendingSingleAt = null;
-        out.push('double');
-        return out;
-      }
-
-      this.pendingSingleAt = now;
+      if (this.taps.length > 0 && now - this.taps[0] <= tapWindowMs) this.taps.push(now);
+      else this.taps = [now];
+      this.pendingAt = now;
     }
 
     return out;
   }
 
-  /** Call regularly (e.g. every 60ms) to flush holds and deferred single waves. */
+  /** Call regularly (e.g. every 60ms) to flush holds and deferred taps. */
   tick(now: number): WaveEvent[] {
     const out: WaveEvent[] = [];
-    const { holdMs, singleDelayMs } = this.cfg;
+    const { holdMs, longHoldMs, singleDelayMs } = this.cfg;
 
-    if (this.covered && !this.holdFired && now - this.coverStart >= holdMs) {
-      this.holdFired = true;
-      out.push('hold');
+    if (this.covered) {
+      const held = now - this.coverStart;
+      // Hold escalates: the gesture fires at 0.9s and again at 2.4s, so keeping
+      // your hand there means "yes… no, undo it" without lifting.
+      if (held >= longHoldMs && this.holdEmitted !== 'holdLong') {
+        this.holdEmitted = 'holdLong';
+        this.clearPending();
+        out.push('holdLong');
+      } else if (held >= holdMs && !this.holdEmitted) {
+        this.holdEmitted = 'hold';
+        this.clearPending();
+        out.push('hold');
+      }
     }
 
-    if (!this.frozen && this.pendingSingleAt !== null && now - this.pendingSingleAt >= singleDelayMs) {
-      this.pendingSingleAt = null;
-      this.waves = [];
-      out.push('wave');
+    if (!this.covered && this.pendingAt !== null && now - this.pendingAt >= singleDelayMs) {
+      const n = Math.min(this.taps.length, 3);
+      this.clearPending();
+      if (n >= 1) out.push(TAP_NAMES[n - 1]);
     }
 
     return out;

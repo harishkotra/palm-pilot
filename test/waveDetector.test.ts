@@ -101,5 +101,45 @@ check('hold cutoff is longer than wave cutoff', DEFAULTS.holdMs > DEFAULTS.maxWa
   check('wave works again after a hold', events.filter((e) => e === 'wave').length === 1, JSON.stringify(events));
 }
 
+// 10. three quick passes are a triple, not a double plus a wave
+{
+  const d = warm();
+  const { events } = run(
+    [
+      [400, 640], [3, 720], [3, 780], [420, 860],
+      [3, 980], [3, 1040], [420, 1120],
+      [3, 1240], [3, 1300], [420, 1380],
+    ],
+    60,
+    d,
+  );
+  check('three quick passes = triple', events.filter((e) => e === 'triple').length === 1, JSON.stringify(events));
+  check('triple does not also emit double', !events.includes('double'), JSON.stringify(events));
+  check('triple does not also emit wave', !events.includes('wave'), JSON.stringify(events));
+}
+
+// 11. parking the hand long enough escalates hold to holdLong
+{
+  const d = warm();
+  const { events } = run([[400, 640], [3, 720], [3, 3400], [420, 3450]], 60, d);
+  check('very long cover escalates to holdLong', events.includes('holdLong'), JSON.stringify(events));
+  check('holdLong is announced once', events.filter((e) => e === 'holdLong').length === 1, JSON.stringify(events));
+  check('hold fires first, then holdLong', events.indexOf('hold') >= 0 && events.indexOf('hold') < events.indexOf('holdLong'), JSON.stringify(events));
+}
+
+// 12. tap window: two waves far apart are two waves, not a double
+{
+  const d = warm();
+  const { events } = run(
+    [[400, 640], [3, 720], [3, 780], [420, 860], [3, 2600], [3, 2660], [420, 2720]],
+    60,
+    d,
+  );
+  check('taps beyond the window stay separate', events.filter((e) => e === 'wave').length === 2, JSON.stringify(events));
+  check('slow pair is not a double', !events.includes('double'), JSON.stringify(events));
+}
+
+check('holdLong is longer than hold', DEFAULTS.longHoldMs > DEFAULTS.holdMs);
+
 console.log(failures === 0 ? '\nALL WAVE DETECTOR TESTS PASSED' : `\n${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);

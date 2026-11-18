@@ -78,10 +78,16 @@ export default function CompactScreen() {
     play('deny');
   }, [play]);
 
+  // triple = three compactions back to back, no thinking in between
+  const churn = useCallback(async () => {
+    for (let i = 0; i < 3; i++) await compress();
+  }, [compress]);
+
   useWaveHandler({
     onWave: () => void compress(),
     onHold: pin,
     onDouble: () => void seed(),
+    onTriple: () => void churn(),
   });
 
   const total = facts.length;
@@ -105,7 +111,7 @@ export default function CompactScreen() {
         <View style={s.bar}>
           <View style={[s.barFill, { width: `${Math.max(2, pct * 100)}%`, backgroundColor: pct > 0.5 ? C.green : pct > 0.25 ? C.amber : C.red }]} />
         </View>
-        <Text style={s.hint}>wave = compact · hold = pin · double = re-seed</Text>
+        <Text style={s.hint}>wave = compact · hold = pin · double = re-seed · triple = ×3</Text>
         <ErrLine msg={err} onRetry={() => void seed()} />
       </Panel>
 

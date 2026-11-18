@@ -1,36 +1,47 @@
 import { useEffect, useRef } from 'react';
 import type { WaveEvent } from './waveDetector';
 
-type Handler = {
+export type WaveHandlers = {
   onWave?: () => void;
-  onHold?: () => void;
   onDouble?: () => void;
+  onTriple?: () => void;
+  onHold?: () => void;
+  onHoldLong?: () => void;
 };
 
-let handlers: Handler[] = [];
+const KEYS: Record<WaveEvent, keyof WaveHandlers> = {
+  wave: 'onWave',
+  double: 'onDouble',
+  triple: 'onTriple',
+  hold: 'onHold',
+  holdLong: 'onHoldLong',
+};
+
+/**
+ * Only the mounted screen gets gestures. Without this, every tab would react to
+ * the same wave and three model calls would fire at once.
+ */
+let current: WaveHandlers | null = null;
 
 export function dispatchWave(e: WaveEvent) {
-  for (const h of handlers) {
-    if (e === 'wave') h.onWave?.();
-    else if (e === 'hold') h.onHold?.();
-    else h.onDouble?.();
-  }
+  current?.[KEYS[e]]?.();
 }
 
-/** Register a screen's gesture handlers. Only mounted screens receive events. */
-export function useWaveHandler(handler: Handler) {
-  const ref = useRef(handler);
-  ref.current = handler;
+export function useWaveHandler(handlers: WaveHandlers) {
+  const ref = useRef(handlers);
+  ref.current = handlers;
 
   useEffect(() => {
-    const entry: Handler = {
+    const proxy: WaveHandlers = {
       onWave: () => ref.current.onWave?.(),
-      onHold: () => ref.current.onHold?.(),
       onDouble: () => ref.current.onDouble?.(),
+      onTriple: () => ref.current.onTriple?.(),
+      onHold: () => ref.current.onHold?.(),
+      onHoldLong: () => ref.current.onHoldLong?.(),
     };
-    handlers.push(entry);
+    current = proxy;
     return () => {
-      handlers = handlers.filter((h) => h !== entry);
+      if (current === proxy) current = null;
     };
   }, []);
 }

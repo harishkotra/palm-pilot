@@ -63,13 +63,19 @@ export default function PanicScreen() {
     play('yolo');
   }, [play]);
 
+  // a cascade: how a panicking agent fills the screen in one gesture
+  const cascade = useCallback(async (n: number) => {
+    for (let i = 0; i < n; i++) {
+      await ask();
+      if (i < n - 1) await new Promise((r) => setTimeout(r, 900));
+    }
+  }, [ask]);
+
   useWaveHandler({
     onWave: () => void ask(),
     onHold: reset,
-    onDouble: () => {
-      void ask();
-      setTimeout(() => void ask(), 2600);
-    },
+    onDouble: () => void cascade(2),
+    onTriple: () => void cascade(4),
   });
 
   const stage = lines.length + 1;
@@ -99,7 +105,7 @@ export default function PanicScreen() {
             />
           ))}
         </View>
-        <Text style={s.hint}>wave = next line · hold = abandon task · double = two turns</Text>
+        <Text style={s.hint}>wave = line · hold = abandon · double = 2 turns · triple = 4 turns</Text>
         <ErrLine msg={err} onRetry={() => void ask()} />
       </Panel>
 

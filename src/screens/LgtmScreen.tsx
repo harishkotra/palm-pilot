@@ -113,8 +113,20 @@ export default function LgtmScreen() {
     setYolo(false);
   }, []);
 
+  // long hold = new session: the agent forgets everything it just did
+  const restart = useCallback(() => {
+    stopYolo();
+    history.current = [];
+    setLog([]);
+    setApproved(0);
+    setDenied(0);
+    play('panic');
+    void load();
+  }, [load, play, stopYolo]);
+
   useWaveHandler({
     onWave: approve,
+    onHoldLong: restart,
     onHold: () => {
       stopYolo();
       void judge('deny');
@@ -144,7 +156,7 @@ export default function LgtmScreen() {
 
         {proposal && (
           <Text style={[s.risk, { color: riskColor(proposal.risk) }]}>
-            risk: {proposal.risk} · wave to approve · hold to deny · double to auto
+            risk: {proposal.risk} · wave = approve · hold = deny · double = auto · holdLong = reset
           </Text>
         )}
 

@@ -4,8 +4,10 @@ import { WaveDetector, type WaveEvent } from './waveDetector';
 
 type Options = {
   onWave?: () => void;
-  onHold?: () => void;
   onDouble?: () => void;
+  onTriple?: () => void;
+  onHold?: () => void;
+  onHoldLong?: () => void;
 };
 
 export type WaveState = {
@@ -23,15 +25,15 @@ export type WaveState = {
  * collapsed separates a wave, a hold and a double wave. The decision logic lives
  * in WaveDetector so it can be tested without a phone.
  */
-export function useWave({ onWave, onHold, onDouble }: Options): WaveState {
+export function useWave({ onWave, onDouble, onTriple, onHold, onHoldLong }: Options): WaveState {
   const [lux, setLux] = useState<number | null>(null);
   const [baseline, setBaseline] = useState(0);
   const [covered, setCovered] = useState(false);
   const [available, setAvailable] = useState<boolean | null>(null);
   const [ready, setReady] = useState(false);
 
-  const cb = useRef({ onWave, onHold, onDouble });
-  cb.current = { onWave, onHold, onDouble };
+  const cb = useRef<Options>({});
+  cb.current = { onWave, onDouble, onTriple, onHold, onHoldLong };
 
   const det = useRef<WaveDetector | null>(null);
   if (!det.current) det.current = new WaveDetector();
@@ -39,8 +41,10 @@ export function useWave({ onWave, onHold, onDouble }: Options): WaveState {
   const emit = useCallback((events: WaveEvent[]) => {
     for (const e of events) {
       if (e === 'wave') cb.current.onWave?.();
+      else if (e === 'double') cb.current.onDouble?.();
+      else if (e === 'triple') cb.current.onTriple?.();
       else if (e === 'hold') cb.current.onHold?.();
-      else cb.current.onDouble?.();
+      else cb.current.onHoldLong?.();
     }
   }, []);
 
