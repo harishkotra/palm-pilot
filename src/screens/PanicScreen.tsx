@@ -4,6 +4,8 @@ import * as Haptics from 'expo-haptics';
 import { C, MONO } from '../theme';
 import { useSfx } from '../sfx';
 import { useWaveHandler } from '../waveBus';
+import { useLlm } from '../llm';
+import { panicLine } from '../llmTasks';
 
 const STAGES = [
   { title: 'still thinking', body: 'It is four minutes into a twelve-second task.', detail: 'no tool calls · no output · no clue' },
@@ -15,9 +17,11 @@ const STAGES = [
 
 export default function PanicScreen() {
   const play = useSfx();
+  const llm = useLlm();
   const [stage, setStage] = useState(0);
   const [seconds, setSeconds] = useState(4 * 60 + 12);
   const [waves, setWaves] = useState(0);
+  const [liveLine, setLiveLine] = useState<string | null>(null);
 
   const ring1 = useRef(new Animated.Value(0)).current;
   const ring2 = useRef(new Animated.Value(0)).current;
@@ -41,12 +45,18 @@ export default function PanicScreen() {
   }, [ring1, ring2]);
 
   const escalate = useCallback(() => {
-    setStage((s) => Math.min(s + 1, STAGES.length - 1));
+    const nextStage = Math.min(stage + 1, STAGES.length - 1);
+    setStage(nextStage);
     setWaves((w) => w + 1);
     play('panic');
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy).catch(() => {});
     thump();
-  }, [play, thump]);
+    if (llm.live) {
+      panicLine(llm.config, nextStage, seconds)
+        .then((line) => line && setLiveLine(line))
+        .catch(() => {});
+    }
+  }, [play, thump, llm.config, llm.live, stage, seconds]);
 
   useWaveHandler({
     onWave: escalate,
@@ -54,6 +64,7 @@ export default function PanicScreen() {
       setStage(0);
       setSeconds(0);
       setWaves(0);
+      setLiveLine(null);
       play('yolo');
       thump();
     },
@@ -90,8 +101,8 @@ export default function PanicScreen() {
       <View style={[s.panel, stage >= 3 && { borderColor: '#40201f' }]}>
         <Text style={[s.stageTag, stage >= 3 && { color: C.red }]}>DIAGNOSIS {stage + 1}/5</Text>
         <Text style={s.title}>{st.title}</Text>
-        <Text style={s.body}>{st.body}</Text>
-        <Text style={s.detail}>↳ {st.detail}</Text>
+        <Text style={s.body}>{liveLine ?? st.body}</Text>
+        <Text style={s.detail}>↳ {liveLine ? 'generated live' : st.detail}</Text>
       </View>
 
       <View style={s.footer}>

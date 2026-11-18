@@ -5,10 +5,12 @@ import { StatusBar } from 'expo-status-bar';
 import { useKeepAwake } from 'expo-keep-awake';
 import { C, MONO } from './src/theme';
 import { useWave } from './src/useWave';
+import { useLlm } from './src/llm';
 import { dispatchWave } from './src/waveBus';
 import LgtmScreen from './src/screens/LgtmScreen';
 import CompactScreen from './src/screens/CompactScreen';
 import PanicScreen from './src/screens/PanicScreen';
+import SetupSheet from './src/screens/SetupSheet';
 
 const TABS = [
   { key: 'lgtm', label: 'LGTM' },
@@ -21,6 +23,8 @@ type TabKey = (typeof TABS)[number]['key'];
 export default function App() {
   useKeepAwake();
   const [tab, setTab] = useState<TabKey>('lgtm');
+  const [setup, setSetup] = useState(false);
+  const llm = useLlm();
 
   const wave = useWave({
     onWave: () => dispatchWave('wave'),
@@ -37,10 +41,13 @@ export default function App() {
             <Text style={s.wordmark}>PALM PILOT</Text>
             <Text style={s.tagline}>your agent, approved by hand</Text>
           </View>
-          <View style={s.sensor}>
+          <Pressable onPress={() => setSetup(true)} style={s.sensor} hitSlop={10}>
+            <View style={[s.badge, llm.live && s.badgeOn]}>
+              <Text style={[s.badgeText, llm.live && { color: C.green }]}>{llm.live ? 'LIVE' : 'SCRIPTED'}</Text>
+            </View>
             <View style={[s.dot, { backgroundColor: wave.covered ? C.amber : wave.ready ? C.green : C.faint }]} />
             <Text style={s.sensorText}>{wave.lux === null ? 'no data' : `${Math.round(wave.lux)} lux`}</Text>
-          </View>
+          </Pressable>
         </View>
 
         <View style={s.tabs}>
@@ -77,6 +84,8 @@ export default function App() {
             </Pressable>
           </View>
         </View>
+
+        <SetupSheet visible={setup} onClose={() => setSetup(false)} />
       </SafeAreaView>
     </SafeAreaProvider>
   );
@@ -94,6 +103,9 @@ const s = StyleSheet.create({
   wordmark: { fontFamily: MONO, fontSize: 20, letterSpacing: 3, color: C.text },
   tagline: { fontFamily: MONO, fontSize: 10, color: C.faint, letterSpacing: 0.6, marginTop: 2 },
   sensor: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingTop: 4 },
+  badge: { borderWidth: 1, borderColor: C.border, borderRadius: 3, paddingHorizontal: 5, paddingVertical: 2 },
+  badgeOn: { borderColor: C.greenDim, backgroundColor: '#0c1a12' },
+  badgeText: { fontFamily: MONO, fontSize: 8.5, letterSpacing: 1.2, color: C.faint },
   dot: { width: 7, height: 7, borderRadius: 4 },
   sensorText: { fontFamily: MONO, fontSize: 11, color: C.dim },
   tabs: { flexDirection: 'row', gap: 8, paddingHorizontal: 16, marginTop: 14, marginBottom: 14 },

@@ -4,6 +4,8 @@ import * as Haptics from 'expo-haptics';
 import { C, MONO, fmt } from '../theme';
 import { useSfx } from '../sfx';
 import { useWaveHandler } from '../waveBus';
+import { useLlm } from '../llm';
+import { compactFact } from '../llmTasks';
 
 const LIMIT = 200_000;
 const PER_COMPACT = 27_000;
@@ -27,6 +29,7 @@ const seed = () => SEED.map((m) => ({ ...m, id: id++ }));
 
 export default function CompactScreen() {
   const play = useSfx();
+  const llm = useLlm();
   const [tokens, setTokens] = useState(187_431);
   const [mems, setMems] = useState<Mem[]>(seed);
   const [compactions, setCompactions] = useState(0);
@@ -47,16 +50,7 @@ export default function CompactScreen() {
   const lost = mems.filter((m) => m.state === 'compressed').length;
   const integrity = Math.round(((mems.length - lost) / mems.length) * 100);
 
-  const compact = useCallback(() => {
-    if (tokens <= 0) {
-      setLine('nothing left to compact. nothing left.');
-      return;
-    }
-    setTokens((t) => Math.max(0, t - PER_COMPACT));
-    setCompactions((n) => n + 1);
-    play('compact');
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
-
+  const scriptedPick = useCallback(() => {
     setMems((prev) => {
       const next = [...prev];
       const target = next.find((m) => m.state === 'intact');
@@ -68,7 +62,37 @@ export default function CompactScreen() {
       }
       return next;
     });
-  }, [play, tokens]);
+  }, []);
+
+  const compact = useCallback(() => {
+    if (tokens <= 0) {
+      setLine('nothing left to compact. nothing left.');
+      return;
+    }
+    setTokens((t) => Math.max(0, t - PER_COMPACT));
+    setCompactions((n) => n + 1);
+    play('compact');
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+
+    if (!llm.live) {
+      scriptedPick();
+      return;
+    }
+
+    const facts = mems.filter((m) => m.state === 'intact').map((m) => m.text);
+    if (!facts.length) {
+      setLine('no facts left. only vibes.');
+      return;
+    }
+    setLine('compacting…');
+    compactFact(llm.config, facts)
+      .then((pick) => {
+        if (!pick) return scriptedPick();
+        setMems((prev) => prev.map((m) => (m.text === pick.from ? { ...m, state: 'compressed', summary: pick.to } : m)));
+        setLine(`"${pick.from}" → "${pick.to}"`);
+      })
+      .catch(() => scriptedPick());
+  }, [play, tokens, llm.config, llm.live, mems, scriptedPick]);
 
   useWaveHandler({
     onWave: compact,

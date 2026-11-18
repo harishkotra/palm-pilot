@@ -4,10 +4,12 @@ import * as Haptics from 'expo-haptics';
 import { C, MONO } from '../theme';
 import { useSfx } from '../sfx';
 import { useWaveHandler } from '../waveBus';
+import { useLlm } from '../llm';
+import { consequenceLine, proposeTool, type Proposal, type Risk } from '../llmTasks';
 
 type Entry = { id: number; text: string; kind: 'run' | 'ok' | 'no' };
 
-type Pending = { tool: string; detail: string; risk: string };
+type Pending = { tool: string; detail: string; risk: Risk };
 
 const REQUESTS: Pending[] = [
   { tool: 'Read', detail: 'src/auth/session.ts', risk: 'low' },
@@ -47,14 +49,18 @@ let nextId = 1;
 
 export default function LgtmScreen() {
   const play = useSfx();
+  const llm = useLlm();
   const [pending, setPending] = useState<Pending>(REQUESTS[0]);
   const [log, setLog] = useState<Entry[]>([{ id: nextId++, text: 'agent attached · model: sonnet-4.6', kind: 'run' }]);
   const [approved, setApproved] = useState(0);
   const [denied, setDenied] = useState(0);
   const [yolo, setYolo] = useState(false);
+  const [busy, setBusy] = useState(false);
   const [verdict, setVerdict] = useState<{ ok: boolean; text: string } | null>(null);
 
   const queue = useRef(1);
+  const history = useRef<string[]>([]);
+  const propSeq = useRef(0);
   const pendingRef = useRef(pending);
   pendingRef.current = pending;
   const scroll = useRef<any>(null);
@@ -88,10 +94,24 @@ export default function LgtmScreen() {
   );
 
   const enqueue = useCallback(() => {
-    const next = REQUESTS[queue.current % REQUESTS.length];
+    const fallback = REQUESTS[queue.current % REQUESTS.length];
     queue.current += 1;
-    setPending(next);
-  }, []);
+    setPending(fallback);
+    if (!llm.live) return;
+
+    // Ask the model what it wants to do next; the scripted card is already on
+    // screen so a slow or dead endpoint never leaves the demo blank.
+    const my = ++propSeq.current;
+    setBusy(true);
+    proposeTool(llm.config, history.current)
+      .then((p) => {
+        if (my === propSeq.current && p) setPending(p);
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (my === propSeq.current) setBusy(false);
+      });
+  }, [llm.config, llm.live]);
 
   const approve = useCallback(
     (silent = false) => {
@@ -107,6 +127,14 @@ export default function LgtmScreen() {
       ]);
       setApproved((n) => n + 1);
       setVerdict({ ok: true, text: 'APPROVED' });
+      history.current.push(`${p.tool} ${p.detail}`);
+      if (llm.live) {
+        consequenceLine(llm.config, { tool: p.tool as Proposal['tool'], detail: p.detail, risk: p.risk }, 'approve')
+          .then((line) => {
+            if (line) setLog((l) => [...l.slice(-40), { id: nextId++, text: line, kind: 'run' }]);
+          })
+          .catch(() => {});
+      }
       if (!silent) {
         play('approve');
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
@@ -114,7 +142,7 @@ export default function LgtmScreen() {
       }
       setTimeout(enqueue, 260);
     },
-    [enqueue, flash, play],
+    [enqueue, flash, play, llm.config, llm.live],
   );
 
   // YOLO mode: rubber-stamp everything, no questions.
@@ -193,7 +221,7 @@ export default function LgtmScreen() {
           },
         ]}
       >
-        <Text style={s.cardLabel}>AWAITING JUDGMENT</Text>
+        <Text style={s.cardLabel}>{busy ? 'AGENT THINKING…' : 'AWAITING JUDGMENT'}</Text>
         <Text style={s.cardTool}>
           {pending.tool} <Text style={s.cardDetail}>{pending.detail}</Text>
         </Text>

@@ -26,6 +26,48 @@ npx expo start
 Scan the QR with **Expo Go** on the S24 Ultra (same Wi‑Fi). `expo-sensors`,
 `expo-audio` and `expo-haptics` are all in Expo Go, so there is no build step.
 
+## Where the AI is (and where it isn't)
+
+Out of the box there is **no inference**: `enabled: false`, so every tool call,
+summary and diagnosis line is scripted. That is deliberate — it demos on a plane
+and it never fails on stage. The sensor is real, the gesture pipeline is real,
+the wording is canned.
+
+Tap the **SCRIPTED / LIVE** badge in the header to point the app at any
+OpenAI‑compatible endpoint. When it is live, four things actually hit the model:
+
+| Mode | Prompt | What the model returns |
+|---|---|---|
+| LGTM | "you are a coding agent, what is the next tool call" (JSON) | `{tool, detail, risk}` — the card on screen |
+| LGTM | after a wave, "one line on what happens next" | one cynical consequence line in the log |
+| /COMPACT | "pick one fact to destroy, restate it worse" (JSON) | `{from, to}` — the fact that gets struck through |
+| PANIC | "you are stuck, one line of false confidence" | the body of the current diagnosis stage |
+
+Anything the model returns is validated: unknown tool names, invented facts
+(the `/COMPACT` pick must be a fact that was actually listed), prose instead of
+JSON, and anything over ~140 chars are all dropped and the scripted line stays.
+A dead endpoint therefore looks like a slow demo, never a broken one.
+
+**Config fields:** base URL, model, API key. Presets fill in OpenAI, a local
+Ollama on the Mac (`http://<mac-lan-ip>:11434/v1`), LM Studio, OpenRouter.
+Bare `host:port` is accepted and gets `http://` + `/v1`; a full URL is left
+alone. **TEST** sends one cheap prompt and reports the round‑trip in ms.
+
+The key lives in `AsyncStorage` on the phone only — not in the repo, not in the
+bundle, not in the logs. It is readable by anyone with the device, so treat it
+as a demo phone credential, not a production secret.
+
+### Pointing it at a local model
+
+```sh
+ollama serve                       # or LM Studio on :1234
+ollama pull qwen3:4b
+ipconfig getifaddr en0             # the Mac's LAN IP
+```
+
+Put `http://<that-ip>:11434/v1` in the sheet, model `qwen3:4b`, leave the key
+empty. On a phone, `localhost` means the phone, not the Mac.
+
 ## How the gesture works
 
 `expo-sensors` has no proximity API, but it does expose **LightSensor**
@@ -49,6 +91,7 @@ Everything is tunable through `DetectorConfig` / `DEFAULTS` in that file.
 
 ```sh
 npm test         # 14 assertions on the gesture state machine
+npm run test:llm # 18 assertions against tools/mock_llm.py (spawns it, kills it)
 npm run typecheck
 ```
 
@@ -72,7 +115,11 @@ events by hand, so the app is demoable even if a sensor misbehaves on stage.
 ## Files
 
 ```
-App.tsx                     shell, tabs, sensor readout, sim buttons
+App.tsx                     shell, tabs, sensor readout, sim buttons, LIVE badge
+src/llm.ts                  config store (AsyncStorage) + probe
+src/llmClient.ts            pure fetch client, URL normaliser, JSON extractor
+src/llmTasks.ts             the four prompts and their validators
+src/screens/SetupSheet.tsx  base URL / model / key sheet with presets + TEST
 src/waveDetector.ts         pure gesture state machine (tested)
 src/useWave.ts              sensor subscription + UI throttling
 src/waveBus.ts              routes events to the mounted screen only
