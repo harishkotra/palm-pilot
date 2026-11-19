@@ -1,42 +1,62 @@
-# Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
-
-# dependencies
-node_modules/
-
-# Expo
-.expo/
-dist/
-web-build/
-expo-env.d.ts
-
-# Native
-.kotlin/
-*.orig.*
-*.jks
+# ── secrets ───────────────────────────────────────────────────────────────
+# .env holds the particle.ai key and the GitHub token. It is never committed
+# and never zipped; .env.example ships placeholders instead.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
 *.p8
 *.p12
-*.key
+*.jks
 *.mobileprovision
 
-# Metro
-.metro-health-check*
+# ── dependencies ──────────────────────────────────────────────────────────
+node_modules/
+.pnp
+.pnp.js
+.yarn/
+jspm_packages/
 
-# debug
+# ── Expo / Metro build output ─────────────────────────────────────────────
+.expo/
+.expo-shared/
+dist/
+web-build/
+build/
+expo-env.d.ts
+.metro-health-check*
+*.tsbuildinfo
+
+# generated native folders (regenerate with `npx expo prebuild`)
+/ios
+/android
+.kotlin/
+
+# ── test + tool output ────────────────────────────────────────────────────
+coverage/
+*.lcov
+test-results/
+playwright-report/
+*.log
 npm-debug.*
 yarn-debug.*
 yarn-error.*
 
-# macOS
+# ── local scratch ─────────────────────────────────────────────────────────
+.tmp/
+tmp/
+*.zip
+*.mp4
+*.mov
+*.wav.bak
+
+# ── editors + agents ──────────────────────────────────────────────────────
 .DS_Store
-*.pem
-
-# local env files
-.env
-.env.*.local
-
-# typescript
-*.tsbuildinfo
-
-# generated native folders
-/ios
-/android
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+.claude/
+.cursor/*.log
+*.orig.*

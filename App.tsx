@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import { Pressable, StatusBar, StyleSheet, Text, View } from 'react-native';
+import { Linking, Pressable, StatusBar, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { useKeepAwake } from 'expo-keep-awake';
 import { C, MONO } from './src/theme';
@@ -106,6 +106,17 @@ export default function App() {
         )}
 
         <SetupSheet visible={setup} onClose={() => setSetup(false)} />
+
+        <View style={s.foot}>
+          <Pressable onPress={() => Linking.openURL('https://harishkotra.me')} hitSlop={10}>
+            <Text style={s.footText}>
+              built by <Text style={s.footLink}>Harish Kotra</Text>
+            </Text>
+          </Pressable>
+          <Pressable onPress={() => Linking.openURL('https://dailybuild.xyz')} hitSlop={10}>
+            <Text style={s.footLink}>other builds ↗</Text>
+          </Pressable>
+        </View>
       </SafeAreaView>
     </SafeAreaProvider>
   );
@@ -127,6 +138,17 @@ const s = StyleSheet.create({
   sim: { flexDirection: 'row', gap: 6, paddingVertical: 10 },
   simBtn: { flex: 1, borderWidth: 1, borderColor: '#131c25', borderRadius: 7, paddingVertical: 8, alignItems: 'center' },
   simText: { fontFamily: MONO, fontSize: 9, color: C.dim, letterSpacing: 1 },
+  foot: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingTop: 8,
+    paddingBottom: 6,
+    borderTopWidth: 1,
+    borderTopColor: '#0e1720',
+  },
+  footText: { fontFamily: MONO, fontSize: 8, color: C.faint, letterSpacing: 0.8 },
+  footLink: { fontFamily: MONO, fontSize: 8, color: C.dim, letterSpacing: 0.8 },
 });
 
 const g = StyleSheet.create({
