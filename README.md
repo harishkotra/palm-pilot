@@ -584,11 +584,3 @@ inlined into the JS bundle at build time, so this pattern is right for a demo on
 own phone and wrong for anything you ship to a store — for that, proxy the calls through
 a server and keep both the model key and the GitHub token off the device. Use a
 read-only GitHub token and revoke it when the demo is over.
-
-## Credits
-
-**Built by [Harish Kotra](https://harishkotra.me)** — [check out my other builds](https://dailybuild.xyz)
-
-Inference by [particle.ai](https://particle.ai) (`particle-1`). Sensor API from
-[Expo](https://expo.dev). Sound effects generated locally with `tools/gen_sfx.py` — no
-third-party audio assets.
