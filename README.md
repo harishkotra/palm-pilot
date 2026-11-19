@@ -503,7 +503,6 @@ palm-pilot/
 │   ├── gen_sfx.py              stdlib WAV generator (no binary assets from strangers)
 │   └── live-demo.ts            gesture → model transcript, no phone
 ├── test/                       detector · parser · live endpoint · live GitHub
-└── docs/blog.md                the technical write-up
 ```
 
 ## Fork it and contribute

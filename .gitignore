@@ -51,6 +51,12 @@ tmp/
 *.mov
 *.wav.bak
 
+# ── writing + screenshots that stay on this machine ───────────────────────
+# blog and launch copy are written for publishing elsewhere, not for the repo
+docs/blog.md
+docs/launch.md
+shots/
+
 # ── editors + agents ──────────────────────────────────────────────────────
 .DS_Store
 Thumbs.db
