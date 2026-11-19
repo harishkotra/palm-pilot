@@ -11,6 +11,13 @@ tab reads a real GitHub repo over the network before it asks the model anything.
 is no scripted content and no fallback copy: no key, no GitHub token, or a bad reply
 means you see an error, not a joke.
 
+<img width="1236" height="2745" alt="01-lgtm" src="https://github.com/user-attachments/assets/7c345fe1-c74c-4a42-aa79-72d9b7b2f60c" />
+<img width="1236" height="2745" alt="05-setup" src="https://github.com/user-attachments/assets/c065596a-7a79-4d8f-b11d-03e2116dda88" />
+<img width="1236" height="2745" alt="04-repo" src="https://github.com/user-attachments/assets/abc58219-1799-4a46-9f95-07c5b3d2856a" />
+<img width="1236" height="2745" alt="02-compact" src="https://github.com/user-attachments/assets/cf5a15ee-8a7c-485f-8860-2386ac2e1f99" />
+<img width="1236" height="2745" alt="03-panic" src="https://github.com/user-attachments/assets/e345381c-21f8-44b3-bbbd-bb1848d8c7a4" />
+
+
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
 │  PALM PILOT            312 lx · base 402              particle-1     │
